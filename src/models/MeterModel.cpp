@@ -4,6 +4,7 @@
 #include "core/LogManager.h"
 #include <QDebug>
 #include <QDateTime>
+#include <QTimer>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <cmath>
@@ -72,7 +73,59 @@ QJsonObject meterToJson(const MeterDef& def, bool hasValue, float value, qint64 
 
 MeterModel::MeterModel(QObject* parent)
     : QObject(parent)
-{}
+    , m_txStaleTimer(new QTimer(this))
+{
+    // Only the resolution of the announcement, not the window itself: the
+    // decision is still kTxMeterStaleMs, and this just bounds how late we are
+    // in noticing it. Runs only between a transmit sample and its stale edge,
+    // so an idle receive-only session pays nothing for it.
+    m_txStaleTimer->setInterval(250);
+    connect(m_txStaleTimer, &QTimer::timeout,
+            this, &MeterModel::checkTxMeterStaleness);
+}
+
+void MeterModel::armTxStaleWatch()
+{
+    m_txMetersWereLive = true;
+    if (!m_txStaleTimer->isActive())
+        m_txStaleTimer->start();
+}
+
+void MeterModel::checkTxMeterStaleness()
+{
+    if (!m_txMetersWereLive) {
+        m_txStaleTimer->stop();
+        return;
+    }
+    if (m_lastTxMeterUpdateMs <= 0)
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - m_lastTxMeterUpdateMs <= kTxMeterStaleMs)
+        return;   // still live; keep watching
+
+    m_txMetersWereLive = false;
+    m_txStaleTimer->stop();
+
+    // DELIBERATELY NOT touching m_fwdPower, m_swr or any timestamp. The stored
+    // values stay last-known and the stamps stay honest — a consumer that asks
+    // "how old is this" must still get the true answer, and zeroing the stamp
+    // here would make a stale reading look freshly measured, which is the exact
+    // failure this fix exists to remove.
+    //
+    // The pair is CO-EMITTED in this order, matching the sample path: #4243
+    // depends on directionalPowerMetersChanged landing in the same cycle as
+    // txMetersChanged, and an edge that broke that ordering would be a subtler
+    // bug than the one being fixed.
+    //
+    // swrValid=false with 0.0f alongside is the established absent-SWR contract
+    // (#4536) — the float must not be interpreted. Forward power carries no
+    // such flag, so 0.0f there is a genuine claim, and a true one: the transmit
+    // meters have gone quiet, which on a radio that has stopped transmitting
+    // means no forward power.
+    emit txMetersChanged(0.0f, 0.0f, false);
+    emit directionalPowerMetersChanged(0.0f, 0.0f, 0.0f, false, false);
+    emit txPeakChanged(0.0f);
+}
 
 void MeterModel::setTgxlHandle(quint32 handle)
 {
@@ -382,6 +435,8 @@ void MeterModel::clear()
     m_reflectedPower = 0.0f;
     m_swr = 1.0f;
     m_lastTxMeterUpdateMs = 0;
+    m_txMetersWereLive = false;
+    if (m_txStaleTimer) m_txStaleTimer->stop();
     m_lastFwdPowerUpdateMs = 0;
     m_lastReflectedPowerUpdateMs = 0;
     m_lastSwrUpdateMs = 0;
@@ -687,6 +742,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_fwdPwrIdx) {
             m_lastTxMeterUpdateMs = packetUpdatedMs;
             m_lastFwdPowerUpdateMs = m_lastTxMeterUpdateMs;
+            armTxStaleWatch();
             // HONOUR THE DECLARED UNIT. This used to convert unconditionally
             // from dBm, which is right for a Flex or an HL2 and wrong for any
             // backend that publishes watts directly — an IC-705 reporting 5 W
@@ -729,6 +785,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_refPwrIdx) {
             m_lastTxMeterUpdateMs = packetUpdatedMs;
             m_lastReflectedPowerUpdateMs = m_lastTxMeterUpdateMs;
+            armTxStaleWatch();
             // REFPWR is an independent directional-coupler reading. Preserve it
             // as watts rather than reconstructing it from SWR — and HONOUR THE
             // DECLARED UNIT, exactly as forward power does.
@@ -749,6 +806,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_swrIdx) {
             m_lastTxMeterUpdateMs = packetUpdatedMs;
             m_lastSwrUpdateMs = m_lastTxMeterUpdateMs;
+            armTxStaleWatch();
             m_swr = v;
             txChanged = true;
             directionalChanged = true;
