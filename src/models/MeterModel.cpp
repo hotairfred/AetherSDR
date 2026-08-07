@@ -99,6 +99,26 @@ void MeterModel::checkTxMeterStaleness()
     }
     if (m_lastTxMeterUpdateMs <= 0)
         return;
+
+    // HOLD WHILE THE OPERATOR IS KEYED.
+    //
+    // The window is 2 s, and a 2 s gap in meter packets is reachable
+    // MID-TRANSMISSION on a lossy streaming backend. Announcing there would
+    // drop the forward-power gauge to zero and invalidate SWR while the
+    // operator is still on the air — trading a stuck reading at rest for a
+    // wrong reading under load, and only one of those is on the air. For a gap
+    // during transmit, holding the last reading is the better answer, which is
+    // what this class did before the stale watch existed.
+    //
+    // The freeze this mechanism exists for happens at UNKEY — which is exactly
+    // when this guard stops applying, so nothing is lost by deferring to it.
+    //
+    // A backend that never reports transmit state leaves this false, which
+    // gives the un-gated behaviour: correct for a POLLING backend, since that
+    // is the one whose meters genuinely stop arriving the moment the key drops.
+    if (m_transmitting)
+        return;   // keep watching; the edge fires once the key drops
+
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now - m_lastTxMeterUpdateMs <= kTxMeterStaleMs)
         return;   // still live; keep watching
@@ -436,6 +456,7 @@ void MeterModel::clear()
     m_swr = 1.0f;
     m_lastTxMeterUpdateMs = 0;
     m_txMetersWereLive = false;
+    m_transmitting = false;
     if (m_txStaleTimer) m_txStaleTimer->stop();
     m_lastFwdPowerUpdateMs = 0;
     m_lastReflectedPowerUpdateMs = 0;

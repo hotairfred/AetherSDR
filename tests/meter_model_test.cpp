@@ -680,6 +680,46 @@ void testTxMetersAnnounceTheirOwnStaleness()
                && !model.hasRecentTxMeters(MeterModel::kTxMeterStaleMs));
 }
 
+// A 2 s gap in meter packets is reachable MID-TRANSMISSION on a lossy streaming
+// backend, and announcing there would zero the forward-power gauge and
+// invalidate SWR with the operator still on the air — trading a stuck reading
+// at rest for a wrong reading under load. The stale watch must hold while keyed
+// and fire only once the key drops.
+void testStaleWatchHoldsWhileTransmitting()
+{
+    MeterModel model;
+    model.defineMeter(txMeter(8, "FWDPWR", "dBm"));
+    model.defineMeter(txMeter(10, "SWR", "SWR"));
+
+    int emissions = 0;
+    bool lastValid = true;
+    float lastFwd = -1.0f;
+    QObject::connect(&model, &MeterModel::txMetersChanged,
+                     [&](float fwd, float, bool valid) {
+        ++emissions; lastFwd = fwd; lastValid = valid;
+    });
+
+    model.setTransmitting(true);
+    model.updateValues({8, 10}, {rawDb(30.0f), rawDb(2.0f)});
+    const int afterSample = emissions;
+
+    // A gap longer than the window, WHILE KEYED. Nothing may be announced.
+    const qint64 aged = QDateTime::currentMSecsSinceEpoch()
+                        - (MeterModel::kTxMeterStaleMs + 500);
+    model.setLastTxMeterUpdateMsForTest(aged);
+    model.setLastSwrUpdateMsForTest(aged);
+    model.checkTxMeterStalenessForTest();
+    report("a mid-transmission gap does NOT zero the gauge",
+           emissions == afterSample);
+
+    // Unkey: now the same staleness is a real at-rest crossing.
+    model.setTransmitting(false);
+    model.checkTxMeterStalenessForTest();
+    report("and the crossing fires once the key drops",
+           emissions == afterSample + 1
+               && nearlyEqual(lastFwd, 0.0f) && !lastValid);
+}
+
 void testSwrIsSuppressedOnceTxMetersGoStale()
 {
     MeterModel model;
@@ -967,6 +1007,7 @@ int main(int argc, char** argv)
     testSwrIsLiveWhileTxMetersAreFresh();
     testSwrIsSuppressedOnceTxMetersGoStale();
     testTxMetersAnnounceTheirOwnStaleness();
+    testStaleWatchHoldsWhileTransmitting();
     testStaleSwrIsNotEmittedToConsumers();
     testSwrWithoutForwardPowerBackendIsValid();
     testStaleSwrIsAlsoSuppressedInMetersForSource();

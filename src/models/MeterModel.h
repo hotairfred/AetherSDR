@@ -152,6 +152,13 @@ public:
     // Test seam: age the TX-meter timestamp so staleness behaviour can be
     // exercised without sleeping through the real window.
     void setLastTxMeterUpdateMsForTest(qint64 ms) { m_lastTxMeterUpdateMs = ms; }
+    // Whether the operator is currently transmitting, from TransmitModel's
+    // transmittingChanged (which covers mox, VOX, break-in and footswitch alike,
+    // not just an explicit MOX press). The stale watch holds while this is true
+    // — see checkTxMeterStaleness for why a mid-transmission gap must not be
+    // announced. A caller that never sets it gets the un-gated behaviour.
+    void setTransmitting(bool tx) { m_transmitting = tx; }
+
     // Run the stale-watch check immediately instead of waiting for its timer,
     // so a test can age the stamp above and observe the transition at once.
     void checkTxMeterStalenessForTest() { checkTxMeterStaleness(); }
@@ -320,6 +327,8 @@ private:
     // stale. Guards the edge so the announcement fires once per transmission
     // rather than on every tick.
     bool m_txMetersWereLive = false;
+    // Set from TransmitModel; see setTransmitting.
+    bool m_transmitting = false;
 
     float convertRaw(const MeterDef& def, qint16 raw) const;
     void clearCompressionState();
