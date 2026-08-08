@@ -34,7 +34,7 @@ class VirtualAudioBridge : public QObject {
     Q_OBJECT
 
 public:
-    static constexpr int NUM_CHANNELS = 4;
+    static constexpr int NUM_CHANNELS = 8;
 
     explicit VirtualAudioBridge(QObject* parent = nullptr);
     ~VirtualAudioBridge() override;
@@ -88,11 +88,11 @@ private:
     // that plain bool/float load/store would lack on weakly-ordered archs.
     std::atomic_bool m_open{false};
     float m_gain{0.5f};  // -6 dB default — GUI-only
-    std::atomic<float> m_channelGain[NUM_CHANNELS]{0.5f, 0.5f, 0.5f, 0.5f};
+    std::atomic<float> m_channelGain[NUM_CHANNELS]{0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f};
     float m_txGain{0.5f};
 
     // RX channels (radio → apps)
-    int  m_shmFds[NUM_CHANNELS]{-1, -1, -1, -1};
+    int  m_shmFds[NUM_CHANNELS]{-1, -1, -1, -1, -1, -1, -1, -1};
     DaxShmBlock* m_blocks[NUM_CHANNELS]{};
 
     // TX channel (apps → radio)

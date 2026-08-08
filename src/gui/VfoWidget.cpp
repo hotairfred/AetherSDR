@@ -2725,7 +2725,7 @@ void VfoWidget::buildTabContent()
         lbl->setStyleSheet(kLabelStyle);
         row->addWidget(lbl);
         m_daxCmb = new GuardedComboBox;
-        m_daxCmb->addItems({"Off", "1", "2", "3", "4"});
+        m_daxCmb->addItems({"Off", "1", "2", "3", "4", "5", "6", "7", "8"});
         AetherSDR::applyComboStyle(m_daxCmb);
         row->addWidget(m_daxCmb, 1);
         vb->addLayout(row);

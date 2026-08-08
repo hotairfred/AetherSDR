@@ -496,7 +496,9 @@ void AetherClockApplet::buildUi()
         m_daxCombo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_daxCombo->addItems({QStringLiteral("DAX Off"), QStringLiteral("DAX 1"),
                               QStringLiteral("DAX 2"), QStringLiteral("DAX 3"),
-                              QStringLiteral("DAX 4")});
+                              QStringLiteral("DAX 4"), QStringLiteral("DAX 5"),
+                              QStringLiteral("DAX 6"), QStringLiteral("DAX 7"),
+                              QStringLiteral("DAX 8")});
         connect(m_daxCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
                 [this](int idx) {
             // Skip the echo while we sync the combo from the model (VfoWidget

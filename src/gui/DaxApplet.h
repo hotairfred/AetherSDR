@@ -17,7 +17,7 @@ class DaxApplet : public QWidget {
     Q_OBJECT
 
 public:
-    static constexpr int kChannels = 4;
+    static constexpr int kChannels = 8;
 
     explicit DaxApplet(QWidget* parent = nullptr);
 
