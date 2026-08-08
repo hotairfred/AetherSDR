@@ -1013,7 +1013,16 @@ QString RigctlProtocol::cmdGetSplitVfo()
     tryPromoteTxSlice();
     auto* rxSlice = currentSlice();
     auto* txSlice = findTxSlice();
-    bool split = (rxSlice && txSlice && rxSlice != txSlice);
+    // Report split only when THIS client engaged it (set_split_vfo 1, or an
+    // implicit VFOB freq/mode set), never merely because the radio TX flag
+    // sits on another slice. With N independent single-VFO CAT ports (one
+    // slice per WSJT-X instance) exactly one slice holds TX, so the global
+    // flag test made every OTHER port read as split, breaking emulated split
+    // (Fake It) on all but one instance. SmartSDR CAT does not conflate the
+    // two. Mirrors the splitActive gate in cmdSetPtt; matches the TCI fix
+    // for issues #4085/#4086.
+    bool split = (m_lastSplitEnable == 1)
+                 && (m_pendingSplitEnable || (rxSlice && txSlice && rxSlice != txSlice));
     // Report TX VFO as VFOB when split (TX on a different slice), VFOA otherwise.
     // The actual slice is resolved internally — the VFO label is only for the client.
     const QString txVfo = split ? "VFOB" : "VFOA";
@@ -2084,7 +2093,11 @@ QString RigctlProtocol::cmdGetVfoInfo(const QString& arg)
 
     auto* rxSlice = currentSlice();
     auto* txSlice = findTxSlice();
-    const bool split = (rxSlice && txSlice && rxSlice != txSlice);
+    // Split only when THIS client engaged it (see cmdGetSplitVfo), not merely
+    // because the global TX slice differs; keeps independent per-slice ports
+    // simplex for multi-instance WSJT-X.
+    const bool split = (m_lastSplitEnable == 1)
+                       && (m_pendingSplitEnable || (rxSlice && txSlice && rxSlice != txSlice));
 
     if (m_extended) {
         // Echo line must include the VFO argument ("get_vfo_info: VFOA").
